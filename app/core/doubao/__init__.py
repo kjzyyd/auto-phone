@@ -258,53 +258,111 @@ class DoubaoClient:
         self.log("豆包浏览器已关闭。", "info")
 
     # ---------- 登录检测 ----------
-    _GUEST_LOGIN_SELECTORS = [
-        # 老版本
+    # 1) 负特征：任一可见 = 未登录
+    _GUEST_LOGIN_BTN_SELECTORS = [
+        # 具体类名（老版本）
         "button[class*='login-btn-header']",
         "a[href*='login']",
-        # 新版本（豆包已改类名，改为在整个 header/页面可见区域搜包含"登录"二字的按钮/链接）
+        # 新版豆包用的是半通用 "header/Header/侧边栏" 容器下的按钮/链接
         "header button",
         "header a",
         "div[class*='Header'] button",
         "div[class*='Header'] a",
+        "nav button",
+        "nav a",
         "[data-testid*='header'] button",
         "[data-testid*='header'] a",
-        "button",
     ]
 
+    # 2) 正特征：任一可见 = 已登录（尽量不依赖具体 class 名）
     _LOGGED_IN_ONLY_SELECTORS = [
-        # 登录后才出现的头像/用户名元素：任一可见即为已登录
+        # 明确的头像类（老版本 / 通用命名）
         "button[class*='Avatar'], [class*='avatar']:has(img)",
         "[class*='UserInfo'], [class*='user-info']",
         "[class*='username'], [class*='userName'], [class*='nick-name']",
         "[class*='Header'] [class*='avatar']",
+        # 新版豆包："退出登录 / 个人中心 / 账号与安全 / 我的" 只会出现在已登录的下拉菜单中
+        "button:has-text('退出登录')",
+        "a:has-text('退出登录')",
+        "button:has-text('个人中心')",
+        "a:has-text('个人中心')",
+        "button:has-text('我的')",
+        "button:has-text('账号与安全')",
+        # 顶部右侧经常出现一个圆形图片（头像）+ 没有登录文案
+        "header img",
+        "nav img",
+        "[data-testid*='header'] img",
+        "[role='banner'] img",
     ]
 
+    # 3) 弹出登录窗（未登录）
     _LOGIN_MODAL_SELECTORS = [
         "div[class*='login-modal']",
         "div[class*='LoginModal']",
         "div[role='dialog']",
+        "div[role='alertdialog']",
     ]
+
+    # 4) Cookie 凭证（只要存在这些 cookie 且非空，基本确定已登录）
+    #    豆包 / 字节系常见登录 cookie：
+    #      sessionid_ss / passport_csrf_token / uid_tt / uid_tt_ss / sid_guard /
+    #      odin_tt / passport_web_id / ttb_browserid 等
+    _AUTH_COOKIE_NAMES = (
+        "sessionid",
+        "sessionid_ss",
+        "sid_guard",
+        "uid_tt",
+        "uid_tt_ss",
+        "odin_tt",
+        "passport_csrf_token",
+        "passport_csrf_token_default",
+        "sso_uid_tt",
+        "sso_uid_tt_ss",
+    )
 
     def is_logged_in(self) -> bool:
         if not self._started or not self._page:
             return False
         page = self._page
+        ctx = self._context
 
-        # 1) 任何登录弹窗 = 未登录
+        # ============================================================
+        # 0) Cookie 凭证优先：只要存在任一有效登录 cookie，直接认为已登录
+        #    （改版最不频繁，不会被前端类名调整误伤）
+        # ============================================================
+        try:
+            if ctx is not None:
+                cookies = ctx.cookies()  # type: list[dict] | None
+                if cookies:
+                    names = {str(c.get("name", "")).lower() for c in cookies if c.get("value")}
+                    if any(n.lower() in names for n in self._AUTH_COOKIE_NAMES):
+                        return True
+        except Exception:
+            pass
+
+        # ============================================================
+        # 1) 登录弹窗 = 未登录
+        # ============================================================
         for sel in self._LOGIN_MODAL_SELECTORS:
             try:
-                m = page.query_selector(sel)
-                if m and self._safe_visible(m):
-                    text = (m.inner_text() or "")
-                    if "登录" in text or "扫码" in text:
+                for m in page.query_selector_all(sel):
+                    if not self._safe_visible(m):
+                        continue
+                    try:
+                        text = (m.inner_text() or "")
+                    except Exception:
+                        text = ""
+                    if any(k in text for k in ("登录", "扫码登录", "手机号登录", "短信登录", "密码登录", "登 录")):
                         return False
             except Exception:
                 pass
 
-        # 2) 扫描"登录"文字按钮（游客才会出现；在 header 等位置）
+        # ============================================================
+        # 2) 扫描含 "登录/立即登录/登陆" 文字的可见按钮/链接 = 未登录
+        #    （不依赖 class 名，按容器范围 + 文案 + 长度严格约束）
+        # ============================================================
         try:
-            for sel in self._GUEST_LOGIN_SELECTORS:
+            for sel in self._GUEST_LOGIN_BTN_SELECTORS:
                 try:
                     els = page.query_selector_all(sel)
                 except Exception:
@@ -314,36 +372,122 @@ class DoubaoClient:
                         if not self._safe_visible(el):
                             continue
                         txt = (el.inner_text() or "").strip()
-                        # 只匹配"登录"，排除"立即登录"/"退出登录"等混淆情况
-                        if not txt or len(txt) > 10:
+                        if not txt or len(txt) > 8:
                             continue
-                        # 严格 2~4 字，且核心是"登录"
-                        if txt == "登录" or txt == "立即登录" or txt == "登陆":
+                        if txt in ("登录", "立即登录", "登陆", "去登录", "登录 / 注册"):
                             return False
                     except Exception:
                         continue
         except Exception:
             pass
 
-        # 3) 正向登录凭证：登录后才有的元素（头像/昵称/用户信息）
+        # ============================================================
+        # 3) 正向登录态元素 = 已登录
+        #    对 "header/nav 里的 img" 这类正例要小心：可能是 logo，
+        #    所以加"附近没有'登录'按钮"的辅助判断
+        # ============================================================
         try:
             for sel in self._LOGGED_IN_ONLY_SELECTORS:
-                els = page.query_selector_all(sel)
+                try:
+                    els = page.query_selector_all(sel)
+                except Exception:
+                    continue
                 for el in els:
-                    if self._safe_visible(el):
+                    if not self._safe_visible(el):
+                        continue
+                    # 明确的"退出登录 / 个人中心"文案 = 直接判定登录
+                    try:
+                        inner = (el.inner_text() or "").strip()
+                    except Exception:
+                        inner = ""
+                    if inner in ("退出登录", "个人中心", "账号与安全", "我的"):
                         return True
+                    # 带 img 的元素，且是圆形头像尺寸（近似 width==height）
+                    try:
+                        bb = el.bounding_box()
+                    except Exception:
+                        bb = None
+                    if bb is not None and bb["width"] > 16 and bb["height"] > 16:
+                        # 圆形头像：宽高接近
+                        if abs(bb["width"] - bb["height"]) / max(bb["width"], bb["height"]) < 0.3:
+                            # 附近 300px 内没有登录按钮才判定为头像
+                            if not self._has_login_text_near(el, radius=400):
+                                return True
         except Exception:
             pass
 
-        # 4) 兜底：如果页面有任何"退出登录"/"我的"/"个人中心"文字也视为已登录
+        # ============================================================
+        # 4) 兜底：整页文本里有"退出登录/个人中心"但没出现"登录/立即登录"按钮
+        # ============================================================
         try:
             body_text = (page.text_content("body") or "")
             if "退出登录" in body_text or "个人中心" in body_text:
-                return True
+                # 如果明确有"退出登录"四个字，基本可以确认登录
+                if "退出登录" in body_text:
+                    return True
+                # "个人中心"可能误触发，要求找不到"登录"按钮才算
+                if not self._page_has_visible_login_btn():
+                    return True
         except Exception:
             pass
 
-        # 5) 无任何登录凭证，即使输入框可见也保守判为未登录
+        # 5) 无任何凭证，保守判未登录
+        return False
+
+    def _page_has_visible_login_btn(self) -> bool:
+        """快速扫描：整页是否存在可见、文案为"登录/立即登录"的 a/button。"""
+        page = self._page
+        if page is None:
+            return False
+        for sel in ("button", "a"):
+            try:
+                for el in page.query_selector_all(sel):
+                    if not self._safe_visible(el):
+                        continue
+                    try:
+                        txt = (el.inner_text() or "").strip()
+                    except Exception:
+                        continue
+                    if 1 <= len(txt) <= 8 and txt in ("登录", "立即登录", "登陆", "去登录"):
+                        return True
+            except Exception:
+                continue
+        return False
+
+    def _has_login_text_near(self, el, radius: int = 400) -> bool:
+        """给定元素周边 radius 像素内是否存在可见的'登录'按钮/链接。"""
+        page = self._page
+        if page is None:
+            return False
+        try:
+            bb = el.bounding_box()
+            if bb is None:
+                return False
+        except Exception:
+            return False
+        cx, cy = bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2
+        for sel in ("button", "a"):
+            try:
+                for other in page.query_selector_all(sel):
+                    if not self._safe_visible(other):
+                        continue
+                    try:
+                        txt = (other.inner_text() or "").strip()
+                    except Exception:
+                        continue
+                    if txt not in ("登录", "立即登录", "登陆", "去登录"):
+                        continue
+                    try:
+                        ob = other.bounding_box()
+                        if ob is None:
+                            continue
+                    except Exception:
+                        continue
+                    ox, oy = ob["x"] + ob["width"] / 2, ob["y"] + ob["height"] / 2
+                    if ((ox - cx) ** 2 + (oy - cy) ** 2) ** 0.5 <= radius:
+                        return True
+            except Exception:
+                continue
         return False
 
     @staticmethod

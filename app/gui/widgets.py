@@ -15,6 +15,8 @@ from . import theme
 
 # ---------------- 状态胶囊 ----------------
 class StatusPill(QFrame):
+    clicked = Signal()
+
     def __init__(self, text: str = "未连接", color: str = theme.MUTED, parent=None):
         super().__init__(parent)
         self.setProperty("pill", True)
@@ -28,6 +30,7 @@ class StatusPill(QFrame):
         lay.addWidget(self.dot)
         lay.addWidget(self.label)
         self.set_color(color)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def set_state(self, text: str, color: str) -> None:
         self.label.setText(text)
@@ -35,6 +38,11 @@ class StatusPill(QFrame):
 
     def set_color(self, color: str) -> None:
         self.dot.setStyleSheet(f"color: {color};")
+
+    def mouseReleaseEvent(self, e) -> None:  # noqa: N802
+        if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(e)
 
 
 # ---------------- 聊天视图 ----------------

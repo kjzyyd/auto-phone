@@ -268,10 +268,7 @@ class MainWindow(QMainWindow):
         sc.activated.connect(self._send)
 
         # 豆包线程信号
-        self.doubao.started.connect(lambda: (
-            self.doubao_pill.set_state("浏览器已打开，等待登录", theme.WARN),
-            self._safe_log("豆包浏览器已打开，请在窗口中扫码/登录。", "info"),
-        ))
+        self.doubao.started.connect(self._on_doubao_started)
         self.doubao.login_changed.connect(self._on_doubao_login)
         self.doubao.ask_failed.connect(
             lambda msg: (self._safe_log(f"豆包：{msg}", "error"),
@@ -281,13 +278,36 @@ class MainWindow(QMainWindow):
         self.doubao.closed.connect(
             lambda: self.doubao_pill.set_state("豆包未连接", theme.ERROR)
         )
+        # 点豆包状态胶囊 = 手动刷一次登录态（用户已扫码完但程序还没检测到时用）
+        self.doubao_pill.clicked.connect(self._refresh_doubao_login)
+        # 点手机状态胶囊 = 手动截一次图（小彩蛋：省一个按钮又实用）
+        self.device_pill.clicked.connect(self._manual_screenshot)
+
+    def _on_doubao_started(self) -> None:
+        self.btn_doubao.setEnabled(True)
+        self.doubao_pill.set_state("浏览器已打开，等待登录", theme.WARN)
+        self._safe_log(
+            "豆包浏览器已打开，请在窗口中扫码/登录。\n"
+            "（登录完成后程序会自动检测；没反应的话点一下顶部的'豆包'状态胶囊手动刷新。）",
+            "info",
+        )
 
     def _on_doubao_login(self, ok: bool) -> None:
         if ok:
             self.doubao_pill.set_state("豆包已登录", theme.SUCCESS)
             self._safe_log("豆包登录成功，可以开始使用。", "success")
         else:
-            self.doubao_pill.set_state("等待登录", theme.WARN)
+            # 只在"已启动过浏览器"的情况下提示等待，避免刚启动的空状态重复刷
+            if self.doubao.client is not None:
+                self.doubao_pill.set_state("等待登录", theme.WARN)
+
+    def _refresh_doubao_login(self) -> None:
+        """用户点'豆包'状态胶囊：手动检查一次登录态。"""
+        if self.doubao.client is None or not self.doubao.client.started:
+            self._safe_log("豆包浏览器尚未启动，请先点「连接豆包」。", "warn")
+            return
+        self._safe_log("正在重新检测豆包登录态…", "info")
+        self.doubao.request_check_login()
 
     # ---------------- 设备动作 ----------------
     def _connect_device(self) -> None:

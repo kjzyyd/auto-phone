@@ -1,0 +1,19 @@
+当前 URL: https://www.doubao.com/chat/
+Title: 豆包 - 字节跳动旗下 AI 智能助手
+  ✔ header login button: 1 elems, visible=1
+     class=semi-button semi-button-primary samantha-button-BghSMg secondary-DFAUit medium-V
+     text='登录'
+  ✔ login-text button: 1 elems, visible=1
+     class=semi-button semi-button-primary samantha-button-BghSMg secondary-DFAUit medium-V
+     text='登录'
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-3' coro=<Connection.run.<locals>.init() running at /workspace/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py:344> wait_for=<Future finished result=None>>
+Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed
+
+找到输入框: True
+发送按钮: True
+  send 按钮 class: shrink-0 font-[400] whitespace-nowrap select-none [&_svg]:shrink-0 text-[14px] leading-[22px] gap-[4px] rounded-dbx-lg transition-colors duration-150 ease-out bg-dbx-fill-highlight text-dbx-text-static-white-primary hover:bg-dbx-fill-highlight-hover [&:is(:where(:is([aria-haspopup="dialog"],[aria-haspopup="menu"])[data-state="open"]:not([data-slot="alert-dialog-trigger"])),:where(:is([aria-haspopup="dialog"],[aria-haspopup="menu"])[data-state="open"]:not([data-slot="alert-dialog-trigger"])_*))]:bg-dbx-fill-highlight-hover outline-transparent outline-none [&_svg:not([class*="size-"])]:size-[16px] [&_svg[data-dbx-name=button-caret]:not([class*="size-"])]:size-[12px] relative cursor-pointer size-36 !rounded-full flex items-center justify-center p-0 border-0 overflow-hidden !bg-g-send-msg-btn-bg hover:!bg-g-send-msg-btn-hover-bg active:!bg-g-send-msg-btn-active-bg
+  send disabled attr: None
+  send visible: True enabled: True

@@ -1,0 +1,31 @@
+== 1. 点「连接手机」 ==
+  设备名: FakePhone16 | 状态: 已连接 FakePhone16
+  手机已连接，预览画面尺寸: 1080 x 2400
+  [截图] gui_chain_1_connected.png 已保存
+== 2. 点「连接豆包」 ==
+  豆包状态: 豆包未连接
+  浏览器 URL: https://www.doubao.com/chat/
+  [截图] gui_chain_2_doubao.png 已保存
+== 3. 输入指令并点「发送指令」 ==
+  发送按钮可用: True
+  按钮已禁用，任务进行中…
+  任务结束，发送按钮重新启用: True
+  [截图] gui_chain_3_sent.png 已保存
+== 4. 检查结果 ==
+  日志行数: 18
+  聊天行数: 10
+  adb(mock) 实际执行 4 个动作:
+    - tap: {'x': '200', 'y': '1600'}
+    - tap: {'x': '540', 'y': '1800'}
+    - text: test123
+    - tap: {'x': '1000', 'y': '1800'}
+  [截图] gui_chain_4_final.png 已保存
+
+GUI 按钮驱动端到端全部通过 ✔
+== 5. 清理线程 ==
+  全部线程已停止
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-3' coro=<Connection.run.<locals>.init() running at /workspace/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py:344> wait_for=<Future finished result=None>>
+Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed

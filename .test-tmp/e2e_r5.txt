@@ -1,0 +1,57 @@
+============================================================
+A. 浏览器层：真实 Chromium + doubao.com/chat
+============================================================
+  ensure_browser OK, profile_dir: /root/.doubao_phone_agent/doubao_profile
+  start OK 耗时 2.8s
+  当前 URL: https://www.doubao.com/chat/
+  输入框找到: True
+  发送按钮找到: True
+  is_logged_in (沙箱未登录应为 False): False
+  未登录 ask 正确报错 ✔: 豆包未登录或输入框不可见，请在打开的浏览器中完成登录。
+  DoubaoClient.close OK; 总共收到日志: 2
+A 段全过 ✔
+
+============================================================
+B. Agent + 设备控制链路（用真实 adb mock）
+============================================================
+  设备: FakePhone16 16 分辨率: (1080, 2400)
+  截图尺寸: (1080, 2400)
+  Agent 结果: (True, '已给张三发送消息')
+  AI 消息数: 1
+  adb 实际发出的动作数 (mock 层面): 8
+    - tap: {'x': '500', 'y': '600'}
+    - swipe: ['100', '200', '300', '400', '250']
+    - key: 3
+    - launch: com.tencent.mm
+    - launch: com.tencent.mm
+    - tap: {'x': '540', 'y': '1800'}
+    - text: Hey,%slet's%shave%sdinner%stonight
+    - tap: {'x': '1000', 'y': '1200'}
+  最后 5 个动作: ['launch', 'launch', 'tap', 'text', 'tap']
+B 段全过 ✔
+
+============================================================
+C. 全链路：DoubaoWorker(QThread) + PhoneAgent 协同
+============================================================
+  DoubaoWorker 已启动浏览器，当前URL: https://www.doubao.com/chat/
+  结果: (True, '屏幕滑动完成')
+  日志条数: 5
+  adb 动作序列（C段产生）:
+    - tap: {'x': '200', 'y': '400'}
+    - swipe: ['100', '2000', '100', '1200', '400']
+  DoubaoWorker 关闭: True
+C 段全过 ✔
+
+============================================================
+端到端 A/B/C 三段全部通过 ✔
+============================================================
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-3' coro=<Connection.run.<locals>.init() running at /workspace/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py:344> wait_for=<Future finished result=None>>
+Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-94' coro=<Connection.run.<locals>.init() running at /workspace/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py:344> wait_for=<Future finished result=None>>
+Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed

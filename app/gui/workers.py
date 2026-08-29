@@ -80,20 +80,36 @@ class DoubaoWorker(QThread):
 
     # ---------- 线程主体 ----------
     def run(self) -> None:
-        waiting_login = False
-        while not self._closed.is_set():
-            # 登录轮询（非阻塞，保持队列可用）
-            if waiting_login and self.client is not None:
-                try:
-                    if self.client.is_logged_in():
-                        waiting_login = False
-                        self.login_changed.emit(True)
-                except Exception:
-                    pass
+        # 登录轮询：
+        #   - 未登录 → 每 1.2s 检查一次；成功检测 → login_changed(True) 并改为低频（15s）。
+        #   - 已登录 → 低频（15s）复查一次，防止 cookie 过期掉线后 UI 状态错误。
+        #   - 用户可随时发 request_check_login 手动触发（返回 True/False 都发一次 login_changed）。
+        last_check_ts = 0.0
+        fast_interval = 1.2
+        slow_interval = 15.0
+        last_login_state: bool | None = None
 
+        while not self._closed.is_set():
+            now = time.time()
+            # 根据当前状态决定轮询间隔
+            interval = slow_interval if last_login_state else fast_interval
+            do_check = False
+            if last_check_ts <= 0 or now - last_check_ts >= interval:
+                do_check = True
+                last_check_ts = now
+
+            # 用户手动点"刷新登录态"优先级最高
             try:
-                cmd = self._q.get(timeout=0.3)
+                cmd = self._q.get(timeout=0.25)
             except queue.Empty:
+                if do_check and self.client is not None:
+                    try:
+                        ok = bool(self.client.is_logged_in())
+                        if ok != last_login_state:
+                            last_login_state = ok
+                            self.login_changed.emit(ok)
+                    except Exception:
+                        pass
                 continue
             kind = cmd[0]
             try:
@@ -102,9 +118,12 @@ class DoubaoWorker(QThread):
                     self.client.ensure_browser()
                     self.client.start()
                     self.started.emit()
-                    waiting_login = True
+                    last_check_ts = now  # 刚启动，等一个 interval 再首次轮询
+                    last_login_state = None
                 elif kind == "check_login":
                     ok = bool(self.client and self.client.is_logged_in())
+                    if ok != last_login_state:
+                        last_login_state = ok
                     self.login_changed.emit(ok)
                 elif kind == "ask":
                     _, key, instr, image, timeout = cmd
@@ -117,10 +136,15 @@ class DoubaoWorker(QThread):
                         if not self.client.is_logged_in():
                             raise RuntimeError(
                                 "豆包未登录。请在打开的浏览器中扫码/登录后重试。"
+                                "（如果已经登录，请在软件界面点一下'豆包'状态胶囊重新检测。）"
                             )
                         reply = self.client.ask(instr, image, timeout)
                         holder["result"] = reply
                         self.reply_ready.emit(reply)
+                        # ask 成功也能确认登录态，避免下一次轮询前被误判
+                        if last_login_state is not True:
+                            last_login_state = True
+                            self.login_changed.emit(True)
                     except Exception as e:  # noqa: BLE001
                         holder["error"] = str(e)
                         self.ask_failed.emit(str(e))
