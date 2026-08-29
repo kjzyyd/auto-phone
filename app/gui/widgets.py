@@ -145,16 +145,31 @@ class ScreenshotPreview(QLabel):
         self._update_scale()
 
     def paintEvent(self, e) -> None:  # noqa: N802
-        super().paintEvent(e)
-        if not self._pixmap or self._last_pos is None:
-            return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cx, cy = self._last_pos
-        pen = QPen(QColor("#FF5252"), 2)
-        p.setPen(pen)
-        p.drawLine(cx - 8, cy, cx + 8, cy)
-        p.drawLine(cx, cy - 8, cx, cy + 8)
+        if self._pixmap:
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            avail_w = max(self.width() - 8, 1)
+            avail_h = max(self.height() - 8, 1)
+            s = min(avail_w / self._pixmap.width(), avail_h / self._pixmap.height())
+            self._scale = min(s, 1.0)
+            tw = int(self._pixmap.width() * self._scale)
+            th = int(self._pixmap.height() * self._scale)
+            off_x = (self.width() - tw) // 2
+            off_y = (self.height() - th) // 2
+            p.drawPixmap(off_x, off_y, tw, th, self._pixmap)
+        else:
+            p.setPen(QColor(theme.MUTED))
+            f = self.font()
+            f.setPointSize(11)
+            p.setFont(f)
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "屏幕预览\n（连接手机后自动刷新）")
+        if self._last_pos is not None:
+            cx, cy = self._last_pos
+            pen = QPen(QColor("#FF5252"), 2)
+            p.setPen(pen)
+            p.drawLine(cx - 8, cy, cx + 8, cy)
+            p.drawLine(cx, cy - 8, cx, cy + 8)
         p.end()
 
     def mousePressEvent(self, e) -> None:  # noqa: N802
