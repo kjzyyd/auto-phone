@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""假 adb：模拟安卓16 设备，沙箱里跑真实 ADB 控制链路。
+每个命令把调用写进 /tmp/dpa_mock_adb.log，便于核对调用顺序。"""
+import json
+import os
+import struct
+import sys
+import time
+import zlib
+
+LOG = os.environ.get("DPA_MOCK_ADB_LOG", "/tmp/dpa_adb_chain.log")
+
+
+def writelog(typ, data):
+    try:
+        with open(LOG, "a") as f:
+            json.dump({"t": time.time(), "type": typ, "data": data}, f, ensure_ascii=False)
+            f.write("\n")
+    except Exception:
+        pass
+
+
+# 去掉 -s <serial>
+raw = sys.argv[1:]
+ARGS = []
+i = 0
+while i < len(raw):
+    if raw[i] == "-s":
+        i += 2
+        continue
+    if raw[i].startswith("-s"):
+        i += 1
+        continue
+    ARGS.append(raw[i])
+    i += 1
+
+# 加 no-sandbox root 标记（真机无此问题，模拟用）
+ROOT_FIX = sys.platform != "win32" and hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def png_bytes(w=1080, h=2400):
+    row = bytearray()
+    for x in range(w):
+        row += bytes((40, 90, 180, 255))
+    raw = bytearray()
+    for y in range(h):
+        r = bytearray(row)
+        if 200 <= y < 300:
+            for x in range(100, 300):
+                r[x * 4:x * 4 + 3] = bytes((230, 80, 60))
+        raw += b"\x00" + r
+
+    def chunk(t, d):
+        c = t + d
+        return struct.pack(">I", len(d)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
+
+    png = b"\x89PNG\r\n\x1a\n"
+    png += chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(bytes(raw), 6))
+    png += chunk(b"IEND", b"")
+    return png
+
+
+cmd = ARGS[0] if ARGS else ""
+sub = ARGS[1] if len(ARGS) > 1 else ""
+
+writelog("call", ARGS)
+
+if cmd == "devices":
+    print("List of devices attached")
+    print("FAKE16\tdevice")
+elif cmd == "get-state":
+    print("device")
+elif cmd == "connect":
+    print(f"connected to {ARGS[1]}")
+elif cmd == "shell":
+    if sub == "getprop":
+        print("[ro.product.model]: [FakePhone16]")
+        print("[ro.build.version.release]: [16]")
+        print("[ro.build.version.sdk]: [36]")
+    elif sub == "wm":
+        print("Physical size: 1080x2400")
+    elif sub == "screencap":
+        sys.stdout.buffer.write(png_bytes())
+    elif sub == "input":
+        op = ARGS[2] if len(ARGS) > 2 else ""
+        if op == "tap":
+            writelog("tap", {"x": ARGS[3], "y": ARGS[4]})
+            print(f"OK tap {ARGS[3]},{ARGS[4]}")
+        elif op == "swipe":
+            tail = ARGS[3:]
+            writelog("swipe", tail)
+            print(f"OK swipe {' '.join(tail)}")
+        elif op == "text":
+            writelog("text", ARGS[3])
+            print(f"OK text {ARGS[3]}")
+        elif op == "keyevent":
+            writelog("key", ARGS[3])
+            print(f"OK key {ARGS[3]}")
+        else:
+            print("OK")
+    elif sub == "monkey":
+        pkg = ARGS[3] if len(ARGS) > 3 else ""
+        writelog("launch", pkg)
+        print(f"OK launch {pkg}")
+    elif sub == "dumpsys":
+        print("  mCurrentFocus=Window{abc com.fake.app/com.fake.app.MainActivity}")
+    else:
+        print("")
+elif cmd == "exec-out" and sub == "screencap":
+    sys.stdout.buffer.write(png_bytes())
+elif cmd == "version":
+    print("Android Debug Bridge version 1.0.41 (chain-mock)")
+else:
+    print("OK")
