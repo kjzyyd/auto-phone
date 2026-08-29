@@ -89,25 +89,27 @@ class DoubaoWorker(QThread):
         slow_interval = 15.0
         last_login_state: bool | None = None
 
+        def _apply_login_state(ok: bool) -> None:
+            nonlocal last_login_state
+            if ok != last_login_state:
+                last_login_state = ok
+                self.login_changed.emit(ok)
+
         while not self._closed.is_set():
             now = time.time()
-            # 根据当前状态决定轮询间隔
             interval = slow_interval if last_login_state else fast_interval
             do_check = False
             if last_check_ts <= 0 or now - last_check_ts >= interval:
                 do_check = True
                 last_check_ts = now
 
-            # 用户手动点"刷新登录态"优先级最高
             try:
                 cmd = self._q.get(timeout=0.25)
             except queue.Empty:
                 if do_check and self.client is not None:
                     try:
                         ok = bool(self.client.is_logged_in())
-                        if ok != last_login_state:
-                            last_login_state = ok
-                            self.login_changed.emit(ok)
+                        _apply_login_state(ok)
                     except Exception:
                         pass
                 continue
@@ -121,10 +123,23 @@ class DoubaoWorker(QThread):
                     last_check_ts = now  # 刚启动，等一个 interval 再首次轮询
                     last_login_state = None
                 elif kind == "check_login":
-                    ok = bool(self.client and self.client.is_logged_in())
-                    if ok != last_login_state:
-                        last_login_state = ok
-                    self.login_changed.emit(ok)
+                    ok, reason = False, ""
+                    try:
+                        if self.client:
+                            r = self.client.is_logged_in(with_reason=True)
+                            if isinstance(r, tuple):
+                                ok = bool(r[0])
+                                reason = str(r[1])
+                            else:
+                                ok = bool(r)
+                                reason = "已登录" if ok else "未登录"
+                    except Exception as e:
+                        ok, reason = False, f"登录检测异常：{e}"
+                    _apply_login_state(ok)
+                    # 原因写操作日志，方便用户对着每一条去排查
+                    if reason:
+                        tag = "success" if ok else "warn"
+                        self._emit_log("【登录检测】\n" + reason, tag)
                 elif kind == "ask":
                     _, key, instr, image, timeout = cmd
                     holder = self._reply_box.get(key)
@@ -133,18 +148,29 @@ class DoubaoWorker(QThread):
                     try:
                         if not self.client or not self.client.started:
                             raise RuntimeError("豆包浏览器未启动")
-                        if not self.client.is_logged_in():
-                            raise RuntimeError(
-                                "豆包未登录。请在打开的浏览器中扫码/登录后重试。"
-                                "（如果已经登录，请在软件界面点一下'豆包'状态胶囊重新检测。）"
+                        # 这里用 with_reason：未登录时把「为什么判你未登录」一并塞进异常文案，
+                        # 用户看到的不是抽象的"未登录"，而是可操作的修复指引。
+                        r = self.client.is_logged_in(with_reason=True)
+                        if isinstance(r, tuple):
+                            ok, reason = bool(r[0]), str(r[1])
+                        else:
+                            ok, reason = bool(r), ""
+                        if not ok:
+                            hint = (
+                                "豆包判未登录，原因：\n" + (reason or "无更多原因") +
+                                "\n\n👉 修复方法：\n"
+                                "  1) 看打开的浏览器窗口右上角，如果有蓝色『登录』按钮，点它，用豆包 App 扫码登录；\n"
+                                "  2) 登录成功后切回我们的软件，点顶部那粒『豆包』状态胶囊（或再次点『连接豆包』），\n"
+                                "     软件会自动重检，变绿就是 OK 了；\n"
+                                "  3) 如果你习惯用『本机 Edge 浏览器』并在那里已经登录过豆包，\n"
+                                "     点『设置 → 浏览器来源 → 本机 Edge』→ 保存，再『连接豆包』。"
                             )
+                            raise RuntimeError(hint)
                         reply = self.client.ask(instr, image, timeout)
                         holder["result"] = reply
                         self.reply_ready.emit(reply)
-                        # ask 成功也能确认登录态，避免下一次轮询前被误判
                         if last_login_state is not True:
-                            last_login_state = True
-                            self.login_changed.emit(True)
+                            _apply_login_state(True)
                     except Exception as e:  # noqa: BLE001
                         holder["error"] = str(e)
                         self.ask_failed.emit(str(e))

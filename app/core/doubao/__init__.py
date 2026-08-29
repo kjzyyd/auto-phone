@@ -403,11 +403,7 @@ class DoubaoClient:
         "div[role='alertdialog']",
     ]
 
-    # 4) Cookie 凭证（只要存在这些 cookie 且非空，基本确定已登录）
-    #    豆包 / 字节系常见登录 cookie：
-    #      sessionid_ss / passport_csrf_token / uid_tt / uid_tt_ss / sid_guard /
-    #      odin_tt / passport_web_id / ttb_browserid 等
-    _AUTH_COOKIE_NAMES = (
+    def _AUTH_COOKIE_NAMES = (
         "sessionid",
         "sessionid_ss",
         "sid_guard",
@@ -420,47 +416,70 @@ class DoubaoClient:
         "sso_uid_tt_ss",
     )
 
-    def is_logged_in(self) -> bool:
-        if not self._started or not self._page:
+    def is_logged_in(self, *, with_reason: bool = False) -> bool | tuple[bool, str]:
+        """
+        返回值：
+          - 默认只返回 bool（True/False）。
+          - with_reason=True 时返回 (bool, reason_text)：reason_text 会写入 GUI 操作日志，
+            帮助用户一眼看懂「为什么判我未登录 / 为什么判我已登录」。
+        """
+        reason_lines: list[str] = []
+        def _ok(r: str) -> bool:
+            reason_lines.append("✔ " + r)
+            return True
+        def _bad(r: str) -> bool:
+            reason_lines.append("✘ " + r)
             return False
+
+        if not self._started or not self._page:
+            reason_lines.append("✘ 浏览器/页面尚未启动")
+            return (False, "\n".join(reason_lines)) if with_reason else False
         page = self._page
         ctx = self._context
 
-        # ============================================================
-        # 0) Cookie 凭证优先：只要存在任一有效登录 cookie，直接认为已登录
-        #    （改版最不频繁，不会被前端类名调整误伤）
-        # ============================================================
+        # 0) Cookie 凭证优先
         try:
             if ctx is not None:
-                cookies = ctx.cookies()  # type: list[dict] | None
-                if cookies:
-                    names = {str(c.get("name", "")).lower() for c in cookies if c.get("value")}
-                    if any(n.lower() in names for n in self._AUTH_COOKIE_NAMES):
-                        return True
-        except Exception:
-            pass
+                cookies = ctx.cookies() or []
+                names = {str(c.get("name", "")).lower() for c in cookies if c.get("value")}
+                hits = [n for n in self._AUTH_COOKIE_NAMES if n.lower() in names]
+                if hits:
+                    ok = _ok(f"Cookie 命中登录凭证：{', '.join(hits)}")
+                    return (ok, "\n".join(reason_lines)) if with_reason else ok
+                else:
+                    reason_lines.append(
+                        f"— Cookie 未命中登录凭证（当前 cookie {len(names)} 个："
+                        f"{', '.join(sorted(names)[:12])}{'…' if len(names) > 12 else ''}）"
+                    )
+        except Exception as e:
+            reason_lines.append(f"— 读取 cookie 失败：{e}")
 
-        # ============================================================
         # 1) 登录弹窗 = 未登录
-        # ============================================================
+        found_modal_login = False
         for sel in self._LOGIN_MODAL_SELECTORS:
             try:
                 for m in page.query_selector_all(sel):
                     if not self._safe_visible(m):
                         continue
                     try:
-                        text = (m.inner_text() or "")
+                        text = m.inner_text() or ""
                     except Exception:
                         text = ""
                     if any(k in text for k in ("登录", "扫码登录", "手机号登录", "短信登录", "密码登录", "登 录")):
-                        return False
+                        found_modal_login = True
+                        break
             except Exception:
                 pass
+            if found_modal_login:
+                break
+        if found_modal_login:
+            bad = _bad("页面弹出登录/扫码对话框，豆包需要你在弹窗里登录")
+            return (bad, "\n".join(reason_lines)) if with_reason else False
+        else:
+            reason_lines.append("— 未发现登录弹窗")
 
-        # ============================================================
-        # 2) 扫描含 "登录/立即登录/登陆" 文字的可见按钮/链接 = 未登录
-        #    （不依赖 class 名，按容器范围 + 文案 + 长度严格约束）
-        # ============================================================
+        # 2) header/nav 范围下扫描"登录/立即登录/登陆"按钮 = 未登录
+        visible_login_btns: list[tuple[str, str]] = []  # (text, class_snippet)
         try:
             for sel in self._GUEST_LOGIN_BTN_SELECTORS:
                 try:
@@ -475,17 +494,24 @@ class DoubaoClient:
                         if not txt or len(txt) > 8:
                             continue
                         if txt in ("登录", "立即登录", "登陆", "去登录", "登录 / 注册"):
-                            return False
+                            cls = (el.get_attribute("class") or "")[:80]
+                            visible_login_btns.append((txt, cls))
                     except Exception:
                         continue
         except Exception:
             pass
+        if visible_login_btns:
+            texts = sorted({t for t, _ in visible_login_btns})
+            bad = _bad(
+                "在页面顶栏发现 '" + "、".join(texts) + "' 按钮，说明你目前是【游客会话】："
+                "豆包允许游客看界面、看推荐题，但发送消息、保存聊天、跨端同步账号都需要真实登录。"
+                "👉 请点击浏览器右上角这个'登录'按钮，用豆包 App 扫码登录，完成后再回软件点「连接豆包」。"
+            )
+            return (bad, "\n".join(reason_lines)) if with_reason else False
+        else:
+            reason_lines.append("— 页面顶栏没有'登录'按钮（好现象）")
 
-        # ============================================================
         # 3) 正向登录态元素 = 已登录
-        #    对 "header/nav 里的 img" 这类正例要小心：可能是 logo，
-        #    所以加"附近没有'登录'按钮"的辅助判断
-        # ============================================================
         try:
             for sel in self._LOGGED_IN_ONLY_SELECTORS:
                 try:
@@ -495,44 +521,80 @@ class DoubaoClient:
                 for el in els:
                     if not self._safe_visible(el):
                         continue
-                    # 明确的"退出登录 / 个人中心"文案 = 直接判定登录
                     try:
                         inner = (el.inner_text() or "").strip()
                     except Exception:
                         inner = ""
                     if inner in ("退出登录", "个人中心", "账号与安全", "我的"):
-                        return True
-                    # 带 img 的元素，且是圆形头像尺寸（近似 width==height）
+                        ok = _ok(f"菜单中出现『{inner}』= 已登录")
+                        return (ok, "\n".join(reason_lines)) if with_reason else ok
                     try:
                         bb = el.bounding_box()
                     except Exception:
                         bb = None
                     if bb is not None and bb["width"] > 16 and bb["height"] > 16:
-                        # 圆形头像：宽高接近
                         if abs(bb["width"] - bb["height"]) / max(bb["width"], bb["height"]) < 0.3:
-                            # 附近 300px 内没有登录按钮才判定为头像
                             if not self._has_login_text_near(el, radius=400):
-                                return True
+                                try:
+                                    cls = (el.get_attribute("class") or "")[:60]
+                                except Exception:
+                                    cls = ""
+                                ok = _ok(
+                                    f"顶栏发现圆形头像元素 ({int(bb['x'])},{int(bb['y'])}, "
+                                    f"{int(bb['width'])}x{int(bb['height'])}, class[:60]={cls!r})"
+                                )
+                                return (ok, "\n".join(reason_lines)) if with_reason else ok
         except Exception:
             pass
+        reason_lines.append("— 暂未发现正例（头像/退出登录等）")
 
-        # ============================================================
         # 4) 兜底：整页文本里有"退出登录/个人中心"但没出现"登录/立即登录"按钮
-        # ============================================================
         try:
             body_text = (page.text_content("body") or "")
-            if "退出登录" in body_text or "个人中心" in body_text:
-                # 如果明确有"退出登录"四个字，基本可以确认登录
-                if "退出登录" in body_text:
-                    return True
-                # "个人中心"可能误触发，要求找不到"登录"按钮才算
-                if not self._page_has_visible_login_btn():
-                    return True
+            if "退出登录" in body_text:
+                ok = _ok("整页文本里包含'退出登录'= 已登录")
+                return (ok, "\n".join(reason_lines)) if with_reason else ok
+            if "个人中心" in body_text and not self._page_has_visible_login_btn():
+                ok = _ok("整页文本里包含'个人中心'且无'登录'按钮 = 已登录")
+                return (ok, "\n".join(reason_lines)) if with_reason else ok
         except Exception:
             pass
 
-        # 5) 无任何凭证，保守判未登录
-        return False
+        # 5) 游客态兜底：左下角出现"用户 + 数字 >" 的未登录账号卡片（新版豆包游客页默认提示）
+        try:
+            guest_pattern = False
+            for el in page.query_selector_all("body *"):
+                try:
+                    if not self._safe_visible(el):
+                        continue
+                    txt = (el.inner_text() or "").strip()
+                except Exception:
+                    continue
+                import re as _re
+                if _re.match(r"用户\d+\s*$", txt) and len(txt) <= 16:
+                    try:
+                        bb = el.bounding_box()
+                    except Exception:
+                        bb = None
+                    if bb and bb["y"] > 800:  # 左下角（1080p 屏幕底部）
+                        guest_pattern = True
+                        break
+            if guest_pattern:
+                bad = _bad(
+                    "检测到左下角『用户XXXX』卡片：这是豆包的游客会话。"
+                    "游客只能试看题目建议、不能发消息给 AI 保存账号。"
+                    "👉 请点右上角『登录』→ 豆包 App 扫码 → 回来后点顶部『豆包』状态胶囊重新检测。"
+                )
+                return (bad, "\n".join(reason_lines)) if with_reason else False
+        except Exception:
+            pass
+
+        bad = _bad(
+            "综合判定未登录："
+            "既没有登录系 cookie、顶栏没有出现头像或菜单、也没有'退出登录/个人中心'文字。"
+            "如果你已经登录过但还是显示未登录，请点一下顶部『豆包』状态胶囊手动触发一次重检。"
+        )
+        return (bad, "\n".join(reason_lines)) if with_reason else False
 
     def _page_has_visible_login_btn(self) -> bool:
         """快速扫描：整页是否存在可见、文案为"登录/立即登录"的 a/button。"""

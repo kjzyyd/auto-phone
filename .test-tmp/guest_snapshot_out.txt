@@ -1,0 +1,69 @@
+[info] 豆包浏览器已打开。若未登录，请在窗口中扫码/登录，然后点「连接豆包」确认。
+URL: https://www.doubao.com/chat/
+TITLE: 豆包 - 字节跳动旗下 AI 智能助手
+
+== 现有 cookie（非空）= 5 个 ==
+  - dbx-web-theme
+  - flow_user_country
+  - hook_slardar_session_id
+  - i18next
+  - ttwid
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-3' coro=<Connection.run.<locals>.init() running at /workspace/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py:344> wait_for=<Future finished result=None>>
+Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed
+  [头像img] parent='下载豆包电脑版' src= box={'x': 1047, 'y': 17.5, 'width': 20, 'height': 20}
+  [头像img] parent='对话' src=https://p3-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/icon/ea27c4e0cacc4091b9f74c25980267a7~tplv-a9rns2rl98-ima box={'x': 367, 'y': 848, 'width': 16, 'height': 16}
+  [头像img] parent='PPT 生成' src=https://p11-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/icon/6753c7ceb4bc4422a70218761a148841~tplv-a9rns2rl98-im box={'x': 447, 'y': 848, 'width': 16, 'height': 16}
+  [头像img] parent='图像生成' src=https://p11-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/icon/cda5ded477fd428b80a2680e170d9555~tplv-a9rns2rl98-im box={'x': 544.890625, 'y': 848, 'width': 16, 'height': 16}
+  [头像img] parent='帮我写作' src=https://p6-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/icon/04eff950455d4278b4a7c9470d7c9162~tplv-a9rns2rl98-ima box={'x': 640.890625, 'y': 848, 'width': 16, 'height': 16}
+  [头像img] parent='视频生成' src=https://p26-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/icon/ecb03d1cc21a4c99b56a4430086e2bf9~tplv-a9rns2rl98-im box={'x': 736.890625, 'y': 848, 'width': 16, 'height': 16}
+  [头像img] parent='翻译' src=https://p11-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/icon/5272a642177047ed89038f6eaedf69ea~tplv-a9rns2rl98-im box={'x': 832.890625, 'y': 848, 'width': 16, 'height': 16}
+  [头像img] parent='深入研究' src=https://p6-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/icon/4ea6d7683948492192578ba0fe1c9111~tplv-a9rns2rl98-ima box={'x': 900.890625, 'y': 848, 'width': 16, 'height': 16}
+
+== 关键按钮/链接 ==
+  含 '登录' 的元素 1 个:
+    - button: '登录' box={'x': 1191, 'y': 9.5, 'width': 73, 'height': 36} class[:120]=semi-button semi-button-primary samantha-button-BghSMg secondary-DFAUit medium-VC3b8a login-btn-header-CTKsn1
+  含 '登陆' 的元素 1 个:
+    - button: '资讯：台风“沙德尔”二次登陆温州撞上天文大潮' box={'x': 296, 'y': 570, 'width': 320.515625, 'height': 42} class[:120]=flex max-w-full cursor-pointer items-center gap-4 px-12 text-left text-14 leading-22 text-dbx-text-primary transition-co
+
+== 其他可见 button/a（短文案<=20字）共 16 个，前 40 ==
+    - button: '豆包'                           box={'x': 13, 'y': 11, 'width': 56, 'height': 36} class[:80]=group flex h-[36px] w-fit min-w-0 items-center rounded-10 border-none bg-transpa
+    - button: '下载豆包电脑版'                      box={'x': 1035, 'y': 8.5, 'width': 148, 'height': 38} class[:80]=shrink-0 font-[400] whitespace-nowrap select-none [&_svg]:shrink-0 text-[14px] l
+    - button: '对话'                           box={'x': 620, 'y': 396, 'width': 160, 'height': 48} class[:80]=group relative flex h-full cursor-pointer items-center justify-center w-160 gap-
+    - button: '工作'                           box={'x': 780, 'y': 396, 'width': 160, 'height': 48} class[:80]=group relative flex h-full cursor-pointer items-center justify-center w-160 gap-
+    - button: '黄金现在多少钱一克？'                   box={'x': 296, 'y': 622, 'width': 166, 'height': 42} class[:80]=flex max-w-full cursor-pointer items-center gap-4 px-12 text-left text-14 leadin
+    - button: '1 万美元等于多少人民币？'                box={'x': 296, 'y': 674, 'width': 193.359375, 'height': 42} class[:80]=flex max-w-full cursor-pointer items-center gap-4 px-12 text-left text-14 leadin
+    - button: '怎么把照片做成视频'                    box={'x': 296, 'y': 726, 'width': 152, 'height': 42} class[:80]=flex max-w-full cursor-pointer items-center gap-4 px-12 text-left text-14 leadin
+    - button: '对话'                           box={'x': 359, 'y': 840, 'width': 72, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+    - button: 'PPT 生成'                       box={'x': 439, 'y': 840, 'width': 93.890625, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+    - button: '图像生成'                         box={'x': 536.890625, 'y': 840, 'width': 92, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+    - button: '帮我写作'                         box={'x': 632.890625, 'y': 840, 'width': 92, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+    - button: '视频生成'                         box={'x': 728.890625, 'y': 840, 'width': 92, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+    - button: '翻译'                           box={'x': 824.890625, 'y': 840, 'width': 64, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+    - button: '深入研究'                         box={'x': 892.890625, 'y': 840, 'width': 92, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+    - button: '更多'                           box={'x': 988.890625, 'y': 840, 'width': 64, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+    - button: '豆包 快速'                        box={'x': 1127.546875, 'y': 840, 'width': 84.453125, 'height': 32} class[:80]=shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&
+
+== body 文本里含登录/升级/游客等关键词的行共 2 条，前 30 ==
+    豆包新工作任务⌘ J新对话⇧ ⌘ KAPI 服务更多最近关于豆包下载豆包电脑版登录有什么我能帮你的吗？对话工作为你推荐资讯：台风“沙德尔”二次登陆温州撞上天文大潮黄金现在多少钱一克？1 万美元等于多少人民币？怎么把照片做成视频对话PPT 生成图像生成帮我写作视频生成翻译深入研究更多豆包 快速在此处拖放文件文件数量：最多 50 个, 文件类型：pdf, txt, csv, docx, doc, xl
+    window._ROUTER_DATA = {"loaderData":{"chat_layout":{"chat_layout":{"aid":497858,"pc_version":"3.33.13","accountInfo":{"data":{"description":"会话过期，请重新登录","error_code":13,"name":"account_info_error","se
+
+== 查找输入框（空状态）==
+  box={'x': 316, 'y': 800, 'width': 928, 'height': 24} tag=P class[:200]=is-empty is-editor-empty
+  placeholder=None data-placeholder='发消息...' contenteditable=None role=None
+
+== 空输入框时发送按钮 = True
+
+== 查找输入框（填字后）==
+  box={'x': 316, 'y': 800, 'width': 928, 'height': 24} tag=DIV class[:200]=tiptap ProseMirror ProseMirror-focused
+  placeholder=None data-placeholder=None contenteditable='true' role='textbox'
+
+== 填字后发送按钮 = True
+   box={'x': 1218, 'y': 838, 'width': 36, 'height': 36} enabled=True aria-label='' class[:160]=shrink-0 font-[400] whitespace-nowrap select-none [&_svg]:shrink-0 text-[14px] leading-[22px] gap-[4px] rounded-dbx-lg transition-colors duration-150 ease-out b
+
+== is_logged_in 当前 = False
+[info] 豆包浏览器已关闭。
+
+DONE
