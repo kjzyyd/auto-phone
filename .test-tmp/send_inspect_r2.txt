@@ -1,0 +1,75 @@
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-3' coro=<Connection.run.<locals>.init() running at /workspace/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py:344> wait_for=<Future finished result=None>>
+Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed
+[info] 豆包浏览器已打开。若未登录，请在窗口中扫码/登录，然后点「连接豆包」确认。
+打开后URL: https://www.doubao.com/chat/
+title: 豆包 - 字节跳动旗下 AI 智能助手
+
+== FIRST_FIND_INPUT 输入框诊断 ==
+  tag: P
+  contenteditable = None
+  role = None
+  placeholder = None
+  aria-placeholder = None
+  class[:200] = is-empty is-editor-empty
+  box = {'x': 316, 'y': 800, 'width': 928, 'height': 24}
+  inner_text[:200] = '\n'
+  inner_html[:300] = '<br class="ProseMirror-trailingBreak">'
+  附近 form/container 可见按钮数: 0
+
+== FIRST 发送按钮 ==
+  class[:180]=flex shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&_svg]:shrink-0 text-[14px] leading-[22px] gap-[4px] rounded-dbx-lg transition-colors duration-1
+  aria-label=None
+  visible=True box={'x': 306, 'y': 838, 'width': 36, 'height': 36}
+
+== 填写方式对比（每条前清空） ==
+  A_keyboard_insert_text: 预期='你好_t_text' 实际文本='你好_t_text' 成功=True
+    ✔ 发送按钮命中: box={'x': 1218, 'y': 838, 'width': 36, 'height': 36} aria-label=''
+  B_keyboard_type: 预期='你好_d_type' 实际文本='你好_d_type' 成功=True
+    ✔ 发送按钮命中: box={'x': 1218, 'y': 838, 'width': 36, 'height': 36} aria-label=''
+  C_element_eval_innerHTML: 预期='你好_erHTML' 实际文本='你好_erHTML' 成功=True
+    ✔ 发送按钮命中: box={'x': 1218, 'y': 838, 'width': 36, 'height': 36} aria-label=''
+  D_element_type: 预期='你好_t_type' 实际文本='你好_t_type' 成功=True
+    ✔ 发送按钮命中: box={'x': 1218, 'y': 838, 'width': 36, 'height': 36} aria-label=''
+
+== FIRST start cookie 诊断 ==
+  cookie 总数: 6, 非空: 5
+  登录相关 cookie: ['hook_slardar_session_id']
+
+== 注入假登录 cookie 成功 ==
+
+== AFTER fake cookie cookie 诊断 ==
+  cookie 总数: 9, 非空: 8
+  登录相关 cookie: ['hook_slardar_session_id', 'sessionid_ss', 'sid_guard', 'uid_tt']
+is_logged_in() after inject fake cookie: True
+[info] 豆包浏览器已关闭。
+[info] 豆包浏览器已打开。若未登录，请在窗口中扫码/登录，然后点「连接豆包」确认。
+
+第二次 URL: https://www.doubao.com/chat/
+
+== SECOND start cookie 诊断 ==
+  cookie 总数: 9, 非空: 8
+  登录相关 cookie: ['hook_slardar_session_id', 'sessionid_ss', 'sid_guard', 'uid_tt']
+
+== Profile 复用诊断 ==
+  第一次 cookie(非空): 5
+  假 cookie 注入后:      8
+  第二次 cookie(非空):   8
+  ✔ 第二次自动识别登录: True  (预期 True)
+
+== SECOND_FIND_INPUT 输入框诊断 ==
+  tag: P
+  contenteditable = None
+  role = None
+  placeholder = None
+  aria-placeholder = None
+  class[:200] = is-empty is-editor-empty
+  box = {'x': 316, 'y': 800, 'width': 928, 'height': 24}
+  inner_text[:200] = '\n'
+  inner_html[:300] = '<br class="ProseMirror-trailingBreak">'
+  附近 form/container 可见按钮数: 0
+[info] 豆包浏览器已关闭。
+
+DONE

@@ -106,6 +106,11 @@ class DoubaoClient:
             return Path(ud)
         return app_dir() / "doubao_profile"
 
+    def login_state_file(self) -> Path:
+        """登录态额外备份文件：Playwright persistent_context 有时对程序化 cookie 刷盘不及时，
+        我们主动把 cookies/localStorage 存一份 JSON，启动时若有就优先 restore。"""
+        return self.profile_dir() / "_login_state.json"
+
     # ---------- 生命周期 ----------
     def ensure_browser(self) -> None:
         """确保浏览器可用：内置 Chromium 首次运行需下载；本机 Edge 则校验已安装。"""
@@ -153,13 +158,21 @@ class DoubaoClient:
         profile = self.profile_dir()
         profile.mkdir(parents=True, exist_ok=True)
         headless = bool(self.config.get("headless"))
+        # 反反自动化 + 反"缓存不持久化"的启动参数
+        extra_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-features=IsolateOrigins,site-per-process,OptimizationHints",
+            "--enable-features=NetworkService,NetworkServiceInProcess",
+        ]
+        if sys.platform != "win32" and hasattr(os, "geteuid") and os.geteuid() == 0:
+            extra_args.append("--no-sandbox")
         try:
             self._context = self._pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
                 headless=headless,
                 viewport={"width": 1280, "height": 900},
                 locale="zh-CN",
-                args=["--disable-blink-features=AutomationControlled"],
+                args=extra_args,
             )
         except Exception as e:
             self._pw.stop()
@@ -168,7 +181,20 @@ class DoubaoClient:
 
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page.set_default_timeout(15000)
+
+        # 先 restore 自己备份的登录 cookie（若存在），解决 persistent_context 偶尔丢登录 cookie 的问题
+        self._restore_login_state()
+
         self._page.goto(str(self.config.get("doubao_url")), wait_until="domcontentloaded")
+        # 等首屏脚本跑完（至少 header/输入区就绪），避免立即 is_logged_in 误判
+        try:
+            self._page.wait_for_selector("[contenteditable='true']", timeout=15000, state="attached")
+        except Exception:
+            pass
+        try:
+            self._page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
         self.log("豆包浏览器已打开。若未登录，请在窗口中扫码/登录，然后点「连接豆包」确认。", "info")
 
     # ---------- 本机 Edge（CDP） ----------
@@ -233,16 +259,90 @@ class DoubaoClient:
             page = ctx.new_page()
         self._page = page
         self._page.set_default_timeout(15000)
+        self._restore_login_state()  # CDP 模式下也尝试 restore 自己的备份
         self._page.goto(str(self.config.get("doubao_url")), wait_until="domcontentloaded")
+        try:
+            self._page.wait_for_selector("[contenteditable='true']", timeout=15000, state="attached")
+        except Exception:
+            pass
+        try:
+            self._page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
         self.log("已连接本机 Edge 窗口。若未登录，请在 Edge 窗口中扫码/登录，然后点「连接豆包」确认。", "info")
 
+    # ---------- 登录态备份/恢复（persistent profile 之外的兜底 JSON） ----------
+    def _save_login_state(self) -> None:
+        if self._context is None:
+            return
+        try:
+            state = self._context.storage_state()
+            # 精简：只保留有 value 的 cookie 与 origins，避免 JSON 过大
+            if "cookies" in state:
+                state["cookies"] = [c for c in state["cookies"] if c.get("value")]
+            path = self.login_state_file()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            import json as _json
+            path.write_text(_json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _restore_login_state(self) -> None:
+        if self._context is None:
+            return
+        path = self.login_state_file()
+        if not path.exists() or path.stat().st_size <= 4:
+            return
+        try:
+            import json as _json
+            state = _json.loads(path.read_text(encoding="utf-8"))
+            cookies = state.get("cookies") or []
+            if cookies:
+                # add_cookies 对域敏感：过期的会被拒绝，这里 try 单个，失败就跳过
+                try:
+                    self._context.add_cookies(cookies)
+                except Exception:
+                    for c in cookies:
+                        try:
+                            self._context.add_cookies([c])
+                        except Exception:
+                            continue
+            origins = state.get("origins") or []
+            if origins and self._page is not None:
+                for origin_block in origins:
+                    origin_url = origin_block.get("origin")
+                    if not origin_url:
+                        continue
+                    for ls in origin_block.get("localStorage", []):
+                        try:
+                            self._page.evaluate(
+                                """({o, k, v}) => {
+                                    try { localStorage.setItem(k, v); } catch(e) {}
+                                }""",
+                                {"o": origin_url, "k": ls.get("name"), "v": ls.get("value")},
+                            )
+                        except Exception:
+                            continue
+        except Exception:
+            pass
+
     def close(self) -> None:
+        # 在 context 还活着时先把登录态做一份 JSON 备份（兜底 persistent_context 刷盘失败）
+        try:
+            self._save_login_state()
+        except Exception:
+            pass
         try:
             if self._edge_mode:
                 # 只关闭本软件开的标签页，保留用户 Edge 与登录态
                 if self._page is not None and not self._page.is_closed():
                     self._page.close()
             elif self._context:
+                # 再触发一次 cookies 读取，督促浏览器把 cookie 写到磁盘
+                try:
+                    _ = self._context.cookies()
+                except Exception:
+                    pass
                 self._context.close()
         except Exception:
             pass
@@ -509,9 +609,18 @@ class DoubaoClient:
         return False
 
     # ---------- 元素定位 ----------
+    # 注意：新版豆包的输入框是 Tiptap ProseMirror，有两个强特征可以精确定位、
+    #       避免把 header 搜索框 / 侧边筛选框等其他 contenteditable 命中。
     _INPUT_CANDIDATES = [
-        "[contenteditable='true']",
+        # 最强：ProseMirror 的空段落里有这个占位
+        "[data-placeholder='发消息...']",
+        # 次强：类名里直接包含 Tiptap/ProseMirror（React 渲染聊天输入）
+        "div[class*='ProseMirror'][contenteditable='true']",
+        "div[class*='tiptap'][contenteditable='true']",
+        # 通用兜底：role=textbox 且可见 + 尺寸足够大（聊天输入框比搜索框宽得多）
+        "div[role='textbox'][contenteditable='true']",
         "div[role='textbox']",
+        "[contenteditable='true']",
         "textarea[placeholder]",
         "textarea",
     ]
@@ -522,28 +631,42 @@ class DoubaoClient:
             return None
         for sel in self._INPUT_CANDIDATES:
             try:
-                el = page.query_selector(sel)
-                if el and self._safe_visible(el):
+                for el in page.query_selector_all(sel):
+                    if not (el and self._safe_visible(el)):
+                        continue
+                    # 宽高太小的（比如 1px 搜索框）直接丢弃
+                    try:
+                        bb = el.bounding_box()
+                        if bb and (bb["width"] < 200 or bb["height"] < 16):
+                            continue
+                    except Exception:
+                        pass
                     return el
             except Exception:
                 continue
         return None
 
+    _SEND_BTN_SELECTORS = [
+        # 文案 aria-label（最理想，无需依赖 class）
+        "button[aria-label*='发送']",
+        "button[aria-label*='Send']",
+        # 新版豆包：背景直接用了 send-msg-btn-bg / 尺寸 size-36 的圆形按钮
+        "button[class*='g-send-msg-btn']",
+        "button[class*='g-send-msg-btn-bg']",
+        "button[class*='send-msg-btn']",
+        "button[class*='size-36']",
+        "button[class*='shrink-0'][class*='rounded-full']",
+        # 兜底：含 send/Send 的 class
+        "button[class*='send']",
+        "button[class*='Send']",
+    ]
+
     def _find_send_button(self) -> Optional[object]:
-        for sel in [
-            "button[aria-label*='发送']",
-            "button[aria-label*='Send']",
-            # 新版豆包：类名里带 g-send-msg-btn
-            "button[class*='g-send-msg-btn']",
-            "button[class*='send-msg']",
-            # 含 class*=send/Send 兜底
-            "button[class*='send']",
-            "button[class*='Send']",
-        ]:
+        for sel in self._SEND_BTN_SELECTORS:
             try:
-                el = self._page.query_selector(sel)
-                if el and self._safe_visible(el):
-                    return el
+                for el in self._page.query_selector_all(sel):
+                    if el and self._safe_visible(el) and el.is_enabled():
+                        return el
             except Exception:
                 continue
         return None
@@ -565,35 +688,114 @@ class DoubaoClient:
         el = self._find_input()
         if el is None:
             raise DoubaoError("找不到输入框，请确认豆包页面已加载并登录。")
+
+        # 1) 先聚焦聊天输入框，并确保光标落在 contenteditable 内部
         try:
-            el.click()
+            el.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        try:
+            el.click(timeout=3000)
+            time.sleep(0.08)
+        except Exception:
+            pass
+        # 用 evaluate 再强制 focus，避免 click 被 Popover/overlay 拦截
+        try:
+            el.evaluate("e => { e.focus && e.focus(); const sel = window.getSelection(); if(sel && e.firstChild){ const r = document.createRange(); r.selectNodeContents(e); r.collapse(false); sel.removeAllRanges(); sel.addRange(r); } }")
         except Exception:
             pass
 
+        # 2) 上传图片（上传完成后焦点可能被偷走，之后要再 focus 一次）
         if image is not None:
             self._attach_image(image)
-
-        try:
-            page.keyboard.insert_text(text)
-        except Exception:
             try:
-                page.keyboard.type(text, delay=8)
-            except Exception as e:
-                raise DoubaoError(f"输入文字失败：{e}")
-
-        send_btn = self._find_send_button()
-        if send_btn is not None:
-            try:
-                send_btn.click()
-                self.log("已发送给豆包。", "info")
-                return
+                el.evaluate("e => { e.focus && e.focus(); }")
             except Exception:
                 pass
-        try:
-            page.keyboard.press("Enter")
-            self.log("已发送给豆包。", "info")
-        except Exception as e:
-            raise DoubaoError(f"发送失败：{e}")
+            time.sleep(0.25)
+
+        # 3) 把文字写进去 —— 三条路径，按优先级切换：
+        #    - 优先 page.keyboard.insert_text（原生输入法，能真的触发 React onChange）
+        #    - 失败或空文本：page.keyboard.type（逐键）
+        #    - 再失败：直接写 contenteditable.innerHTML + 派发 input/change 事件（强制让受控组件感知）
+        text = str(text or "")
+        wrote_ok = False
+        if text:
+            try:
+                page.keyboard.insert_text(text)
+                wrote_ok = True
+            except Exception:
+                try:
+                    page.keyboard.type(text, delay=6)
+                    wrote_ok = True
+                except Exception:
+                    wrote_ok = False
+            if not wrote_ok:
+                try:
+                    # evaluate 直接塞 DOM + 派发 input，让 ProseMirror 的 onChange 感知到
+                    esc = text.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+                    el.evaluate(
+                        f"(e) => {{"
+                        f"  const p = document.createElement('p');"
+                        f"  p.textContent = `{esc}`;"
+                        f"  // 清空 ProseMirror 之前的空占位 p"
+                        f"  const empty = e.querySelector('p.is-empty, p[data-placeholder]');"
+                        f"  if (empty && (!empty.textContent || !empty.textContent.trim())) empty.remove();"
+                        f"  e.appendChild(p);"
+                        f"  e.dispatchEvent(new Event('input', {{bubbles:true, cancelable:true}}));"
+                        f"  e.dispatchEvent(new Event('change', {{bubbles:true}}));"
+                        f"  e.dispatchEvent(new KeyboardEvent('keyup', {{bubbles:true}}));"
+                        f"}}"
+                    )
+                    wrote_ok = True
+                except Exception as e:
+                    raise DoubaoError(f"输入文字失败：{e}")
+            # 等 React 重渲染让「发送」按钮出现并变可用（新版豆包输入空时按钮 hidden）
+            for _ in range(15):
+                try:
+                    if (el.inner_text() or "").strip():
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.08)
+
+        # 4) 填字/图片后 **再** 找发送按钮（空输入时按钮可能 display:none）
+        send_btn = self._find_send_button()
+        if send_btn is None and (text or image):
+            # 等 0.5 秒按钮淡入
+            for _ in range(10):
+                send_btn = self._find_send_button()
+                if send_btn is not None:
+                    break
+                time.sleep(0.06)
+
+        sent = False
+        if send_btn is not None:
+            try:
+                send_btn.click(timeout=3000)
+                sent = True
+                self.log("已点击发送按钮，消息已提交给豆包。", "info")
+            except Exception:
+                sent = False
+        if not sent:
+            # 兜底发送：豆包默认支持 Ctrl+Enter 发送（Enter 是换行）
+            try:
+                # 确保焦点回到输入框
+                try:
+                    el.click(timeout=1500)
+                except Exception:
+                    pass
+                page.keyboard.press("Control+Enter")
+                sent = True
+                self.log("未找到发送按钮，已用 Ctrl+Enter 发送。", "info")
+            except Exception as e:
+                # 再尝试一下普通 Enter（极少数设置把 Enter 改成发送）
+                try:
+                    page.keyboard.press("Enter")
+                    sent = True
+                    self.log("未找到发送按钮，已用 Enter 发送。", "info")
+                except Exception as e2:
+                    raise DoubaoError(f"发送失败：按钮点击与回车都失败：{e2} / {e}")
 
     def _attach_image(self, image: bytes) -> None:
         page = self._page
