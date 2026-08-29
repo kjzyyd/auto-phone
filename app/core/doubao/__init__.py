@@ -258,21 +258,93 @@ class DoubaoClient:
         self.log("豆包浏览器已关闭。", "info")
 
     # ---------- 登录检测 ----------
+    _GUEST_LOGIN_SELECTORS = [
+        # 老版本
+        "button[class*='login-btn-header']",
+        "a[href*='login']",
+        # 新版本（豆包已改类名，改为在整个 header/页面可见区域搜包含"登录"二字的按钮/链接）
+        "header button",
+        "header a",
+        "div[class*='Header'] button",
+        "div[class*='Header'] a",
+        "[data-testid*='header'] button",
+        "[data-testid*='header'] a",
+        "button",
+    ]
+
+    _LOGGED_IN_ONLY_SELECTORS = [
+        # 登录后才出现的头像/用户名元素：任一可见即为已登录
+        "button[class*='Avatar'], [class*='avatar']:has(img)",
+        "[class*='UserInfo'], [class*='user-info']",
+        "[class*='username'], [class*='userName'], [class*='nick-name']",
+        "[class*='Header'] [class*='avatar']",
+    ]
+
+    _LOGIN_MODAL_SELECTORS = [
+        "div[class*='login-modal']",
+        "div[class*='LoginModal']",
+        "div[role='dialog']",
+    ]
+
     def is_logged_in(self) -> bool:
         if not self._started or not self._page:
             return False
-        try:
-            login_btn = self._page.query_selector("button[class*='login-btn-header']")
-            if login_btn and self._safe_visible(login_btn):
-                return False
-            # 兜底：出现登录弹窗也算未登录
-            for sel in ["div[class*='login-modal']", "div[class*='LoginModal']"]:
-                m = self._page.query_selector(sel)
+        page = self._page
+
+        # 1) 任何登录弹窗 = 未登录
+        for sel in self._LOGIN_MODAL_SELECTORS:
+            try:
+                m = page.query_selector(sel)
                 if m and self._safe_visible(m):
-                    return False
+                    text = (m.inner_text() or "")
+                    if "登录" in text or "扫码" in text:
+                        return False
+            except Exception:
+                pass
+
+        # 2) 扫描"登录"文字按钮（游客才会出现；在 header 等位置）
+        try:
+            for sel in self._GUEST_LOGIN_SELECTORS:
+                try:
+                    els = page.query_selector_all(sel)
+                except Exception:
+                    continue
+                for el in els:
+                    try:
+                        if not self._safe_visible(el):
+                            continue
+                        txt = (el.inner_text() or "").strip()
+                        # 只匹配"登录"，排除"立即登录"/"退出登录"等混淆情况
+                        if not txt or len(txt) > 10:
+                            continue
+                        # 严格 2~4 字，且核心是"登录"
+                        if txt == "登录" or txt == "立即登录" or txt == "登陆":
+                            return False
+                    except Exception:
+                        continue
         except Exception:
             pass
-        return self._find_input() is not None
+
+        # 3) 正向登录凭证：登录后才有的元素（头像/昵称/用户信息）
+        try:
+            for sel in self._LOGGED_IN_ONLY_SELECTORS:
+                els = page.query_selector_all(sel)
+                for el in els:
+                    if self._safe_visible(el):
+                        return True
+        except Exception:
+            pass
+
+        # 4) 兜底：如果页面有任何"退出登录"/"我的"/"个人中心"文字也视为已登录
+        try:
+            body_text = (page.text_content("body") or "")
+            if "退出登录" in body_text or "个人中心" in body_text:
+                return True
+        except Exception:
+            pass
+
+        # 5) 无任何登录凭证，即使输入框可见也保守判为未登录
+        return False
 
     @staticmethod
     def _safe_visible(el) -> bool:
@@ -316,9 +388,13 @@ class DoubaoClient:
     def _find_send_button(self) -> Optional[object]:
         for sel in [
             "button[aria-label*='发送']",
+            "button[aria-label*='Send']",
+            # 新版豆包：类名里带 g-send-msg-btn
+            "button[class*='g-send-msg-btn']",
+            "button[class*='send-msg']",
+            # 含 class*=send/Send 兜底
             "button[class*='send']",
             "button[class*='Send']",
-            "button[aria-label*='Send']",
         ]:
             try:
                 el = self._page.query_selector(sel)

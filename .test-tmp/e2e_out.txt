@@ -1,0 +1,19 @@
+============================================================
+A. 浏览器层：真实 Chromium + doubao.com/chat
+============================================================
+  ensure_browser OK, profile_dir: /root/.doubao_phone_agent/doubao_profile
+  start OK 耗时 2.0s
+  当前 URL: https://www.doubao.com/chat/
+  输入框找到: True
+  发送按钮找到: True
+  is_logged_in (沙箱未登录应为 False): True
+Traceback (most recent call last):
+  File "/workspace/.test-tmp/e2e_chain.py", line 73, in <module>
+    assert not logged, "沙箱里豆包不可能已登录"
+           ^^^^^^^^^^
+AssertionError: 沙箱里豆包不可能已登录
+Task was destroyed but it is pending!
+task: <Task cancelling name='Task-3' coro=<Connection.run.<locals>.init() running at /workspace/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py:344> wait_for=<Future finished result=None>>
+Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed
