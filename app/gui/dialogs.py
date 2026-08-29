@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
@@ -43,6 +43,14 @@ class SettingsDialog(QDialog):
         # ---- 豆包 ----
         db = QGroupBox("豆包网页")
         fl2 = QFormLayout(db)
+        self.browser_backend = QComboBox()
+        self.browser_backend.addItem("内置 Chromium（随软件打包，无需额外安装）", "bundled")
+        self.browser_backend.addItem("本机 Edge 浏览器（保留登录态，推荐）", "edge")
+        idx = self.browser_backend.findData(str(self.config.get("browser_backend")))
+        self.browser_backend.setCurrentIndex(max(idx, 0))
+        self.browser_backend.currentIndexChanged.connect(self._toggle_edge_fields)
+        fl2.addRow("浏览器来源：", self.browser_backend)
+
         row = QWidget()
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
@@ -54,10 +62,20 @@ class SettingsDialog(QDialog):
         h.addWidget(self.profile, 1)
         h.addWidget(btn_browse)
         fl2.addRow("浏览器数据目录：", row)
+
+        self.edge_exe = QLineEdit(str(self.config.get("edge_exe")))
+        self.edge_exe.setPlaceholderText("留空自动检测（C:\\Program Files\\Microsoft\\Edge 等）")
+        fl2.addRow("Edge 可执行文件：", self.edge_exe)
+
+        self.edge_cdp = QLineEdit(str(self.config.get("edge_cdp_url")))
+        self.edge_cdp.setPlaceholderText("例如 http://127.0.0.1:9222")
+        fl2.addRow("Edge 调试端口：", self.edge_cdp)
+
         self.headless = QCheckBox("隐藏豆包浏览器窗口（后台运行，建议保持关闭以便扫码登录）")
         self.headless.setChecked(bool(self.config.get("headless")))
         fl2.addRow("", self.headless)
         root.addWidget(db)
+        self._toggle_edge_fields()
 
         # ---- 任务 ----
         tk = QGroupBox("自动任务")
@@ -92,11 +110,20 @@ class SettingsDialog(QDialog):
         if d:
             self.profile.setText(d)
 
+    def _toggle_edge_fields(self) -> None:
+        is_edge = self.browser_backend.currentData() == "edge"
+        # 仅 Edge 模式才需要 Edge 专用字段
+        for w in (self.edge_exe, self.edge_cdp):
+            w.setEnabled(is_edge)
+
     def _save(self) -> None:
         self.config.set("adb_path", self.adb_path.text().strip())
         self.config.set("prefer_u2", self.prefer_u2.isChecked())
         self.config.set("wifi_address", self.wifi.text().strip())
+        self.config.set("browser_backend", self.browser_backend.currentData())
         self.config.set("user_data_dir", self.profile.text().strip())
+        self.config.set("edge_exe", self.edge_exe.text().strip())
+        self.config.set("edge_cdp_url", self.edge_cdp.text().strip() or "http://127.0.0.1:9222")
         self.config.set("headless", self.headless.isChecked())
         self.config.set("max_steps", self.max_steps.value())
         self.config.set("action_interval", self.action_interval.value())

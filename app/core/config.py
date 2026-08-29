@@ -31,6 +31,11 @@ DEFAULTS = {
     "user_data_dir": "",                    # 豆包浏览器会话目录（登录态持久化）
     "headless": False,                      # 豆包浏览器是否隐藏窗口
     "doubao_timeout": 180,                  # 等待 AI 回复超时（秒）
+    # 浏览器来源：bundled=内置 Chromium；edge=本机 Edge（保留登录态，需调试端口）
+    "browser_backend": "bundled",
+    "edge_cdp_url": "http://127.0.0.1:9222",
+    "edge_exe": "",                         # Edge 可执行文件路径；留空自动检测
+    "edge_profile": "",                     # Edge 专用数据目录；留空用默认（登录态存于此）
     # Agent
     "max_steps": 20,                        # 单条指令最大操作轮次
     "action_interval": 0.6,                 # 每条 adb 操作间隔（秒）

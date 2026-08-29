@@ -4,12 +4,16 @@
 - 发送：找到输入框 -> 填入文字 ->（可选）附带截图 -> 回车/点发送。
 - 读取：基于「发送前/后整段对话文本 diff」+ 文本稳定判定，兼容豆包前端改版。
 - 登录检测：优先看「登录」按钮是否存在（未登录时输入框也可见，不能只看输入框）。
+- 浏览器来源：内置 Chromium（默认）或本机 Edge（通过 CDP 连接，保留登录态）。
 """
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -26,6 +30,54 @@ def _setup_browsers_path() -> None:
             os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(base)
 
 
+def _find_edge_executable() -> Optional[str]:
+    """自动定位本机 Microsoft Edge 可执行文件。"""
+    candidates: list[str] = []
+    if sys.platform == "win32":
+        pf86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+        pf = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        la = os.environ.get("LOCALAPPDATA", "")
+        candidates += [
+            os.path.join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(pf, "Microsoft", "Edge", "Application", "msedge.exe"),
+        ]
+        if la:
+            candidates.append(os.path.join(la, "Microsoft", "Edge", "Application", "msedge.exe"))
+    elif sys.platform == "darwin":
+        candidates.append("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge")
+    else:
+        candidates += ["microsoft-edge", "microsoft-edge-stable"]
+    for c in candidates:
+        if c and Path(c).exists():
+            return c
+    for name in ("microsoft-edge", "microsoft-edge-stable"):
+        p = shutil.which(name)
+        if p:
+            return p
+    return None
+
+
+def _cdp_port(cdp_url: str) -> int:
+    try:
+        return int(cdp_url.rsplit(":", 1)[1].rstrip("/"))
+    except Exception:
+        return 9222
+
+
+def _wait_cdp(cdp_url: str, timeout: float = 15.0) -> bool:
+    """等待 Edge/Chromium 的调试端口就绪。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(cdp_url + "/json/version", timeout=2) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
 class DoubaoError(RuntimeError):
     """豆包网页操作异常。"""
 
@@ -35,9 +87,11 @@ class DoubaoClient:
         self.config = config
         self._log = logger or (lambda msg, level="info": None)
         self._pw = None
+        self._browser = None
         self._context = None
         self._page = None
         self._started = False
+        self._edge_mode = False
 
     def log(self, msg: str, level: str = "info") -> None:
         self._log(msg, level)
@@ -54,7 +108,15 @@ class DoubaoClient:
 
     # ---------- 生命周期 ----------
     def ensure_browser(self) -> None:
-        """确保 Playwright Chromium 可用（首次运行需要联网下载一次）。"""
+        """确保浏览器可用：内置 Chromium 首次运行需下载；本机 Edge 则校验已安装。"""
+        if str(self.config.get("browser_backend")) == "edge":
+            exe = str(self.config.get("edge_exe") or "") or _find_edge_executable()
+            if not exe:
+                raise DoubaoError(
+                    "未找到本机 Microsoft Edge。请在「设置 → 浏览器来源」里选择 Edge，"
+                    "并填写 Edge 可执行文件路径。"
+                )
+            return
         _setup_browsers_path()
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -67,7 +129,6 @@ class DoubaoClient:
                 "或将 ms-playwright 目录放到 exe 同目录。"
             )
         self.log("首次运行：正在下载 Chromium 浏览器（约 150MB），请稍候…", "info")
-        import subprocess
         subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"], check=True
         )
@@ -76,6 +137,15 @@ class DoubaoClient:
     def start(self) -> None:
         if self._started:
             return
+        backend = str(self.config.get("browser_backend") or "bundled")
+        if backend == "edge":
+            self._start_edge()
+        else:
+            self._start_bundled()
+        self._started = True
+
+    # ---------- 内置 Chromium ----------
+    def _start_bundled(self) -> None:
         from playwright.sync_api import sync_playwright
 
         _setup_browsers_path()
@@ -99,12 +169,80 @@ class DoubaoClient:
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page.set_default_timeout(15000)
         self._page.goto(str(self.config.get("doubao_url")), wait_until="domcontentloaded")
-        self._started = True
         self.log("豆包浏览器已打开。若未登录，请在窗口中扫码/登录，然后点「连接豆包」确认。", "info")
+
+    # ---------- 本机 Edge（CDP） ----------
+    def _start_edge(self) -> None:
+        """启动/连接本机 Edge：带调试端口打开真实窗口，通过 CDP 操作，保留登录态。"""
+        from playwright.sync_api import sync_playwright
+
+        cdp_url = str(self.config.get("edge_cdp_url") or "http://127.0.0.1:9222")
+        self._pw = sync_playwright().start()
+        self._edge_mode = True
+
+        if not _wait_cdp(cdp_url, timeout=3.0):
+            # 端口未就绪：启动 Edge（独立 profile，不影响日常使用的 Edge 窗口）
+            exe = str(self.config.get("edge_exe") or "") or _find_edge_executable()
+            if not exe:
+                self._pw.stop()
+                self._pw = None
+                raise DoubaoError(
+                    "未找到本机 Microsoft Edge。请安装 Edge，或在「设置 → 浏览器来源 → Edge」"
+                    "中填写 Edge 可执行文件路径。"
+                )
+            profile = str(self.config.get("edge_profile") or "") or str(app_dir() / "edge_profile")
+            Path(profile).mkdir(parents=True, exist_ok=True)
+            cmd = [
+                exe,
+                f"--remote-debugging-port={_cdp_port(cdp_url)}",
+                f"--user-data-dir={profile}",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ]
+            # Linux 下以 root 运行时需禁用沙箱（Windows 不受影响）
+            if sys.platform != "win32" and hasattr(os, "geteuid") and os.geteuid() == 0:
+                cmd.append("--no-sandbox")
+            self.log(f"正在启动本机 Edge（调试端口 {_cdp_port(cdp_url)}）…", "info")
+            try:
+                subprocess.Popen(cmd)
+            except Exception as e:
+                self._pw.stop()
+                self._pw = None
+                raise DoubaoError(f"启动 Edge 失败：{e}")
+            if not _wait_cdp(cdp_url, timeout=25.0):
+                self._pw.stop()
+                self._pw = None
+                raise DoubaoError("Edge 已启动但调试端口未就绪，请手动检查 Edge 是否可正常打开。")
+
+        try:
+            self._browser = self._pw.chromium.connect_over_cdp(cdp_url)
+        except Exception as e:
+            self._pw.stop()
+            self._pw = None
+            raise DoubaoError(f"连接本机 Edge 失败：{e}")
+
+        ctx = self._browser.contexts[0] if self._browser.contexts else self._browser.new_context()
+        self._context = ctx
+        # 已有豆包标签页则复用，否则新开
+        page = None
+        for pg in ctx.pages:
+            if "doubao" in (pg.url or ""):
+                page = pg
+                break
+        if page is None:
+            page = ctx.new_page()
+        self._page = page
+        self._page.set_default_timeout(15000)
+        self._page.goto(str(self.config.get("doubao_url")), wait_until="domcontentloaded")
+        self.log("已连接本机 Edge 窗口。若未登录，请在 Edge 窗口中扫码/登录，然后点「连接豆包」确认。", "info")
 
     def close(self) -> None:
         try:
-            if self._context:
+            if self._edge_mode:
+                # 只关闭本软件开的标签页，保留用户 Edge 与登录态
+                if self._page is not None and not self._page.is_closed():
+                    self._page.close()
+            elif self._context:
                 self._context.close()
         except Exception:
             pass
@@ -113,6 +251,7 @@ class DoubaoClient:
                 self._pw.stop()
         except Exception:
             pass
+        self._browser = None
         self._context = None
         self._page = None
         self._started = False
