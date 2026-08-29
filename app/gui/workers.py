@@ -57,8 +57,8 @@ class DoubaoWorker(QThread):
     def request_check_login(self) -> None:
         self._q.put(("check_login",))
 
-    def ask_sync(self, instruction: str, image: bytes | None, timeout: int) -> str:
-        """阻塞等待豆包回复（供 Agent 线程调用）。"""
+    def ask(self, instruction: str, image: bytes | None = None, timeout: int = 180) -> str:
+        """阻塞等待豆包回复（与 DoubaoClient.ask 鸭子接口一致，供 Agent 线程调用）。"""
         key = f"ask-{threading.get_ident()}-{time.time():.3f}"
         ev = threading.Event()
         self._reply_box[key] = {"result": None, "error": None}
@@ -70,6 +70,10 @@ class DoubaoWorker(QThread):
         if holder.get("error"):
             raise RuntimeError(holder["error"])
         return holder.get("result") or ""
+
+    def ask_sync(self, instruction: str, image: bytes | None, timeout: int) -> str:
+        """ask 的旧别名，向后兼容。"""
+        return self.ask(instruction, image=image, timeout=timeout)
 
     def request_close(self) -> None:
         self._q.put(("close",))
