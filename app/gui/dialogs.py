@@ -67,6 +67,22 @@ class SettingsDialog(QDialog):
         self.edge_exe.setPlaceholderText("留空自动检测（C:\\Program Files\\Microsoft\\Edge 等）")
         fl2.addRow("Edge 可执行文件：", self.edge_exe)
 
+        self.edge_profile_mode = QComboBox()
+        self.edge_profile_mode.addItem("豆包专用（独立配置，不影响日常 Edge）", "dedicated")
+        self.edge_profile_mode.addItem("我日常的 Edge 配置（已有登录账号，推荐）", "system")
+        mode = "system" if bool(self.config.get("edge_use_system_profile")) else "dedicated"
+        idx = self.edge_profile_mode.findData(mode)
+        self.edge_profile_mode.setCurrentIndex(max(idx, 0))
+        self.edge_profile_mode.currentIndexChanged.connect(self._toggle_edge_fields)
+        fl2.addRow("Edge 配置来源：", self.edge_profile_mode)
+        self.edge_profile_hint = QLabel(
+            "选择『我日常的 Edge 配置』可直接复用你已登录的豆包账号；\n"
+            "若连接失败，请先彻底退出 Edge（含托盘图标）再点「连接豆包」。"
+        )
+        self.edge_profile_hint.setWordWrap(True)
+        self.edge_profile_hint.setStyleSheet("color: " + theme.MUTED + "; font-size: 11px;")
+        fl2.addRow("", self.edge_profile_hint)
+
         self.edge_cdp = QLineEdit(str(self.config.get("edge_cdp_url")))
         self.edge_cdp.setPlaceholderText("例如 http://127.0.0.1:9222")
         fl2.addRow("Edge 调试端口：", self.edge_cdp)
@@ -113,7 +129,7 @@ class SettingsDialog(QDialog):
     def _toggle_edge_fields(self) -> None:
         is_edge = self.browser_backend.currentData() == "edge"
         # 仅 Edge 模式才需要 Edge 专用字段
-        for w in (self.edge_exe, self.edge_cdp):
+        for w in (self.edge_exe, self.edge_cdp, self.edge_profile_mode, self.edge_profile_hint):
             w.setEnabled(is_edge)
 
     def _save(self) -> None:
@@ -124,6 +140,7 @@ class SettingsDialog(QDialog):
         self.config.set("user_data_dir", self.profile.text().strip())
         self.config.set("edge_exe", self.edge_exe.text().strip())
         self.config.set("edge_cdp_url", self.edge_cdp.text().strip() or "http://127.0.0.1:9222")
+        self.config.set("edge_use_system_profile", self.edge_profile_mode.currentData() == "system")
         self.config.set("headless", self.headless.isChecked())
         self.config.set("max_steps", self.max_steps.value())
         self.config.set("action_interval", self.action_interval.value())

@@ -207,7 +207,7 @@ class DoubaoClient:
         self._edge_mode = True
 
         if not _wait_cdp(cdp_url, timeout=3.0):
-            # 端口未就绪：启动 Edge（独立 profile，不影响日常使用的 Edge 窗口）
+            # 端口未就绪：启动 Edge（默认独立 profile，不影响日常使用的 Edge 窗口）
             exe = str(self.config.get("edge_exe") or "") or _find_edge_executable()
             if not exe:
                 self._pw.stop()
@@ -216,15 +216,28 @@ class DoubaoClient:
                     "未找到本机 Microsoft Edge。请安装 Edge，或在「设置 → 浏览器来源 → Edge」"
                     "中填写 Edge 可执行文件路径。"
                 )
-            profile = str(self.config.get("edge_profile") or "") or str(app_dir() / "edge_profile")
-            Path(profile).mkdir(parents=True, exist_ok=True)
+            use_system = bool(self.config.get("edge_use_system_profile"))
+            if use_system:
+                # 直接用你日常的 Edge 配置（里面已有你登录的账号）。
+                # 注意：如果 Edge 已经在运行，新进程会并入旧实例且不会开调试端口，
+                # 需要先彻底关闭 Edge（包括托盘）再点「连接豆包」。
+                profile = None
+                self.log(
+                    "使用你日常的 Edge 配置打开。若提示端口未就绪，请先彻底退出 Edge"
+                    "（含右下角托盘图标），再点「连接豆包」。",
+                    "info",
+                )
+            else:
+                profile = str(self.config.get("edge_profile") or "") or str(app_dir() / "edge_profile")
+                Path(profile).mkdir(parents=True, exist_ok=True)
             cmd = [
                 exe,
                 f"--remote-debugging-port={_cdp_port(cdp_url)}",
-                f"--user-data-dir={profile}",
                 "--no-first-run",
                 "--no-default-browser-check",
             ]
+            if profile:
+                cmd.append(f"--user-data-dir={profile}")
             # Linux 下以 root 运行时需禁用沙箱（Windows 不受影响）
             if sys.platform != "win32" and hasattr(os, "geteuid") and os.geteuid() == 0:
                 cmd.append("--no-sandbox")
@@ -403,7 +416,7 @@ class DoubaoClient:
         "div[role='alertdialog']",
     ]
 
-    def _AUTH_COOKIE_NAMES = (
+    _AUTH_COOKIE_NAMES = (
         "sessionid",
         "sessionid_ss",
         "sid_guard",
@@ -511,6 +524,16 @@ class DoubaoClient:
         else:
             reason_lines.append("— 页面顶栏没有'登录'按钮（好现象）")
 
+        # 2.5) 无登录按钮 + 聊天输入框可用 = 已登录
+        #      （游客页必然带右上角『登录』按钮——已用真实页面验证；登录后换成头像/菜单，
+        #        所以"无登录按钮 + 有输入框"就是最可靠的已登录信号）
+        try:
+            if not self._page_has_visible_login_btn() and self._find_input() is not None:
+                ok = _ok("页面没有任何『登录/立即登录』按钮，且聊天输入框可用 = 已登录")
+                return (ok, "\n".join(reason_lines)) if with_reason else ok
+        except Exception:
+            pass
+
         # 3) 正向登录态元素 = 已登录
         try:
             for sel in self._LOGGED_IN_ONLY_SELECTORS:
@@ -560,39 +583,11 @@ class DoubaoClient:
         except Exception:
             pass
 
-        # 5) 游客态兜底：左下角出现"用户 + 数字 >" 的未登录账号卡片（新版豆包游客页默认提示）
-        try:
-            guest_pattern = False
-            for el in page.query_selector_all("body *"):
-                try:
-                    if not self._safe_visible(el):
-                        continue
-                    txt = (el.inner_text() or "").strip()
-                except Exception:
-                    continue
-                import re as _re
-                if _re.match(r"用户\d+\s*$", txt) and len(txt) <= 16:
-                    try:
-                        bb = el.bounding_box()
-                    except Exception:
-                        bb = None
-                    if bb and bb["y"] > 800:  # 左下角（1080p 屏幕底部）
-                        guest_pattern = True
-                        break
-            if guest_pattern:
-                bad = _bad(
-                    "检测到左下角『用户XXXX』卡片：这是豆包的游客会话。"
-                    "游客只能试看题目建议、不能发消息给 AI 保存账号。"
-                    "👉 请点右上角『登录』→ 豆包 App 扫码 → 回来后点顶部『豆包』状态胶囊重新检测。"
-                )
-                return (bad, "\n".join(reason_lines)) if with_reason else False
-        except Exception:
-            pass
-
         bad = _bad(
             "综合判定未登录："
-            "既没有登录系 cookie、顶栏没有出现头像或菜单、也没有'退出登录/个人中心'文字。"
-            "如果你已经登录过但还是显示未登录，请点一下顶部『豆包』状态胶囊手动触发一次重检。"
+            "既没有登录系 cookie、页面存在『登录』按钮、也没有出现头像或菜单。"
+            "如果你确实已登录但仍显示未登录，请点一下顶部『豆包』状态胶囊手动重检；"
+            "或改用「设置 → 浏览器来源 → 本机 Edge」+『用我日常的 Edge 配置』直接复用你已登录的账号。"
         )
         return (bad, "\n".join(reason_lines)) if with_reason else False
 
@@ -724,21 +719,73 @@ class DoubaoClient:
     ]
 
     def _find_send_button(self) -> Optional[object]:
+        """找『发送』按钮：必须位于输入框右半侧（避免命中左下角的工具栏按钮）。
+
+        新版豆包：输入区右侧的圆形按钮在空输入时是『上传/加号』，填字后才变成发送。
+        所以本方法优先返回「位于输入框右半侧」的候选；没有命中时退回任何可见候选
+        （最后还会走 Ctrl+Enter 兜底，见 _send）。
+        """
+        page = self._page
+        input_el = self._find_input()
+        input_box = None
+        try:
+            if input_el is not None:
+                input_box = input_el.bounding_box()
+        except Exception:
+            input_box = None
+
+        def _in_right_half(el) -> bool:
+            if input_box is None:
+                return True
+            try:
+                bb = el.bounding_box()
+            except Exception:
+                return False
+            if bb is None:
+                return False
+            # 右半侧：按钮中心 x >= 输入框中心 x，且垂直方向在输入框附近 ±120px
+            input_cx = input_box["x"] + input_box["width"] / 2
+            input_bottom = input_box["y"] + input_box["height"]
+            cx = bb["x"] + bb["width"] / 2
+            return cx >= input_cx - 12 and abs(bb["y"] - input_bottom) <= 120
+
+        candidates: list[object] = []
         for sel in self._SEND_BTN_SELECTORS:
             try:
-                for el in self._page.query_selector_all(sel):
-                    if el and self._safe_visible(el) and el.is_enabled():
-                        return el
+                for el in page.query_selector_all(sel):
+                    try:
+                        if not (el and self._safe_visible(el) and el.is_enabled()):
+                            continue
+                    except Exception:
+                        continue
+                    candidates.append(el)
             except Exception:
                 continue
+        # 优先：位于输入框右半侧
+        for el in candidates:
+            if _in_right_half(el):
+                return el
+        # 兜底：任意可见候选（交给 _send 的 Ctrl+Enter 决策）
+        if candidates:
+            return candidates[0]
         return None
 
     # ---------- 发送 ----------
     def ask(self, instruction: str, image: bytes | None = None, timeout: int = 180) -> str:
         if not self._started or not self._page:
             raise DoubaoError("豆包浏览器未启动，请先点击「连接豆包」。")
-        if not self.is_logged_in():
-            raise DoubaoError("豆包未登录或输入框不可见，请在打开的浏览器中完成登录。")
+        # 登录检测不阻塞发送：能打字、能发出去、能收到回复 = 可用。
+        # 检测到未登录时仅告警并照常尝试；若豆包真挡住发送，_wait_response 会
+        # 在弹出登录框时立刻给出登录指引，而不是干等超时。
+        try:
+            if not self.is_logged_in():
+                self.log(
+                    "当前未检测到登录状态，但仍将尝试直接发送。"
+                    "如果发送失败或弹出登录框，请按提示在浏览器里登录。",
+                    "warn",
+                )
+        except Exception:
+            pass
 
         page = self._page
         base_text = self._conversation_text()
@@ -933,6 +980,23 @@ class DoubaoClient:
         stable_since = 0.0
 
         while time.time() < deadline:
+            # 快速失败：发送后豆包弹出登录框（游客被拦）→ 立刻给指引，别干等
+            try:
+                if not self.is_logged_in():
+                    modal = self._login_modal_visible()
+                    if modal:
+                        raise DoubaoError(
+                            "豆包弹出登录框，消息没有发出去。\n"
+                            "👉 请在打开的浏览器窗口里点击『登录』，用豆包 App 扫码登录，\n"
+                            "   回到软件点顶部『豆包』状态胶囊重检后再发送。\n"
+                            "（如果你确实已在浏览器里登录了账号，请改用「设置 → 浏览器来源 → 本机 Edge」"
+                            "并勾选『用我日常的 Edge 配置』，就能直接读到你的登录态。）"
+                        )
+            except DoubaoError:
+                raise
+            except Exception:
+                pass
+
             try:
                 current = self._conversation_text()
             except Exception:
@@ -949,6 +1013,26 @@ class DoubaoClient:
         if last_text:
             return self._extract_reply(sent_text, base_text, last_text)
         raise DoubaoError(f"等待豆包回复超时（{timeout}s）。")
+
+    def _login_modal_visible(self) -> bool:
+        """当前页面是否弹出可见的登录/扫码对话框。"""
+        page = self._page
+        if page is None:
+            return False
+        for sel in self._LOGIN_MODAL_SELECTORS:
+            try:
+                for m in page.query_selector_all(sel):
+                    if not self._safe_visible(m):
+                        continue
+                    try:
+                        text = m.inner_text() or ""
+                    except Exception:
+                        text = ""
+                    if any(k in text for k in ("登录", "扫码登录", "手机号登录", "短信登录", "密码登录", "登 录")):
+                        return True
+            except Exception:
+                continue
+        return False
 
     def _input_empty(self) -> bool:
         try:

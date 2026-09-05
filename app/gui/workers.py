@@ -148,24 +148,20 @@ class DoubaoWorker(QThread):
                     try:
                         if not self.client or not self.client.started:
                             raise RuntimeError("豆包浏览器未启动")
-                        # 这里用 with_reason：未登录时把「为什么判你未登录」一并塞进异常文案，
-                        # 用户看到的不是抽象的"未登录"，而是可操作的修复指引。
+                        # 登录检测不再阻塞发送：检测结果只写日志提示。
+                        # 真的能打字发送 = 可用；若豆包弹登录框，client.ask 会抛带指引的异常。
                         r = self.client.is_logged_in(with_reason=True)
                         if isinstance(r, tuple):
                             ok, reason = bool(r[0]), str(r[1])
                         else:
                             ok, reason = bool(r), ""
                         if not ok:
-                            hint = (
-                                "豆包判未登录，原因：\n" + (reason or "无更多原因") +
-                                "\n\n👉 修复方法：\n"
-                                "  1) 看打开的浏览器窗口右上角，如果有蓝色『登录』按钮，点它，用豆包 App 扫码登录；\n"
-                                "  2) 登录成功后切回我们的软件，点顶部那粒『豆包』状态胶囊（或再次点『连接豆包』），\n"
-                                "     软件会自动重检，变绿就是 OK 了；\n"
-                                "  3) 如果你习惯用『本机 Edge 浏览器』并在那里已经登录过豆包，\n"
-                                "     点『设置 → 浏览器来源 → 本机 Edge』→ 保存，再『连接豆包』。"
+                            self._emit_log(
+                                "【提示】未检测到登录状态，将直接尝试发送。原因：\n" +
+                                (reason or "无更多原因") +
+                                "\n如果发送失败或弹出登录框，请按浏览器里的提示完成登录。",
+                                "warn",
                             )
-                            raise RuntimeError(hint)
                         reply = self.client.ask(instr, image, timeout)
                         holder["result"] = reply
                         self.reply_ready.emit(reply)

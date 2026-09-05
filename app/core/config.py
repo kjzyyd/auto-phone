@@ -36,6 +36,7 @@ DEFAULTS = {
     "edge_cdp_url": "http://127.0.0.1:9222",
     "edge_exe": "",                         # Edge 可执行文件路径；留空自动检测
     "edge_profile": "",                     # Edge 专用数据目录；留空用默认（登录态存于此）
+    "edge_use_system_profile": False,       # True=使用你日常的 Edge 配置（你已登录的账号），False=豆包专用独立配置
     # Agent
     "max_steps": 20,                        # 单条指令最大操作轮次
     "action_interval": 0.6,                 # 每条 adb 操作间隔（秒）
